@@ -2,6 +2,8 @@
 mulai cepat (Node >= 20; inti tanpa dependensi, WhatsApp native butuh `npm install`):
 
 ```sh
+git clone https://github.com/adhe222/Sakti-agent
+cd Sakti-agent
 bash pasang.sh             # salin + npm install (Baileys) + langsung `sakti setup`
 bash pasang.sh --rea       # sekaligus pasang REA + daftarkan MCP
 # atau tanpa pemasangan permanen:
