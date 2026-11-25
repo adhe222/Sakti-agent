@@ -1,0 +1,26 @@
+{
+  "name": "sakti-cli",
+  "version": "3.33.6",
+  "description": "Agen terminal mandiri: alat Sakti Bot + agen gaya pi + ingatan/skill gaya Hermes, tanpa biner luar",
+  "type": "module",
+  "bin": {
+    "sakti": "./sakti.js"
+  },
+  "scripts": {
+    "test": "bash uji-jalan.sh",
+    "test:regresi": "bash regresi.sh",
+    "lint": "eslint ."
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "baileys": "7.0.0-rc14",
+    "qrcode-terminal": "^0.12.0"
+  },
+  "devDependencies": {
+    "eslint": "^9.39.5",
+    "prettier": "^3.10.1"
+  }
+}
