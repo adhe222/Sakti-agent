@@ -1254,6 +1254,25 @@ async function main() {
 const perintah = sisa[0] || (flag.help ? 'help' : 'chat');
   const kata = sisa.slice(1);
 
+  // `sakti -p "<pesan>"` didokumentasikan sebagai mode sekali-jalan berpesan
+  // (README & riwayat sejak 2.x), tapi `-p` hanya menyalakan flag.cetak lalu
+  // "pesan" diperlakukan sebagai NAMA PERINTAH -> "tidak ada perintah atau alat
+  // bernama". Dengan pesan posisi + flag cetak, rutekan ke mode run.
+  if (flag.cetak === true && sisa.length && !PERINTAH.includes(sisa[0]) && !cariAlat(ALIAS[sisa[0]] || sisa[0])) {
+    const lampiran = uraiArray(flag.lampirkan).flatMap((jalur) => {
+      try {
+        const isi = fs.readFileSync(jalur, 'utf8');
+        return ['--- ' + jalur + ' ---\n' + (isi.length > 20000 ? isi.slice(0, 20000) + '\n[...dipotong ' + isi.length + ' byte]' : isi)];
+      } catch (galat) {
+        console.error('lampiran gagal dibaca: ' + jalur + ' (' + galat.message + ')');
+        process.exitCode = 1;
+        return [];
+      }
+    });
+    const pesan = [lampiran.join('\n\n'), sisa.join(' ').trim()].filter(Boolean).join('\n\n');
+    if (pesan) { await modeAgen(pesan, { flag, ctx, konfModel }); return; }
+  }
+
   // Rawat diri saat startup (maks sekali/6 jam): perbaiki izin/folder/hook,
   // bersihkan sampah, lalu tarik update kode bila repo bersih + ada remote.
   // Dilewati di uji/CI (state/config diarahkan ke temp) dan saat dimatikan.
