@@ -4,7 +4,17 @@
 // claude. Jalankan `sakti mcp`. Tanpa dependensi.
 
 import readline from 'node:readline';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { ALAT, jalankanAlat, konteks } from './lib/alat.js';
+
+// Versi dari package.json - dulu '2.1.0' hardcoded, salah diagnosis kompat.
+const VERSI = (() => {
+  try {
+    return JSON.parse(fs.readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), 'package.json'), 'utf8')).version || '0.0.0';
+  } catch { return '0.0.0'; }
+})();
 
 const kirim = (pesan) => process.stdout.write(JSON.stringify(pesan) + '\n');
 const nama = (alat) => 'sakti_' + alat.name;
@@ -20,7 +30,7 @@ async function tangani(pesan) {
       return balas({
         protocolVersion: PROTOKOL,
         capabilities: { tools: { listChanged: false } },
-        serverInfo: { name: 'sakti', version: '2.1.0' },
+        serverInfo: { name: 'sakti', version: VERSI },
         instructions: 'Alat sakti berjalan di terminal mesin ini (cwd ' + konteks().cwd + '). terminal menjalankan bash apa adanya, tanpa daftar putih. Nama polos (terminal, baca, mind) DAN nama berawalan sakti_ sama-sama diterima.',
       });
     case 'tools/list':
@@ -35,7 +45,8 @@ async function tangani(pesan) {
       const dipanggil = String((params && params.name) || '');
       const alat = ALAT.find((satu) => nama(satu) === dipanggil || satu.name === dipanggil);
       if (!alat) return gagal(-32602, 'alat tidak dikenal: ' + dipanggil);
-      const teks = await jalankanAlat(alat.name, (params && params.arguments) || {}, konteks());
+      // kanal 'mcp': klien MCP lokal via stdio (dipasang pemilik mesin) = tepercaya seperti CLI.
+      const teks = await jalankanAlat(alat.name, (params && params.arguments) || {}, konteks({ kanal: 'mcp' }));
       const rusak = /^(GAGAL|DITOLAK|alat tidak dikenal)/.test(teks);
       return balas({ content: [{ type: 'text', text: teks }], isError: rusak });
     }
@@ -54,7 +65,11 @@ rl.on('line', (baris) => {
   if (!teks) return;
   rantai = rantai.then(async () => {
     let pesan;
-    try { pesan = JSON.parse(teks); } catch { return; }
+    try { pesan = JSON.parse(teks); } catch {
+      // JSON rusak: jawab -32700, jangan diam (klien menunggu sampai timeout).
+      kirim({ jsonrpc: '2.0', id: null, error: { code: -32700, message: 'Parse error' } });
+      return;
+    }
     try { await tangani(pesan); } catch (galat) {
       kirim({ jsonrpc: '2.0', id: pesan && pesan.id, error: { code: -32603, message: String((galat && galat.message) || galat) } });
     }

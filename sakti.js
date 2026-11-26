@@ -33,9 +33,9 @@ import { bacaHook, berkasHook } from './lib/hook.js';
 import { mesinLuar } from './lib/gabung.js';
 import { tutupSekarang as tutupMcp } from './lib/mcp-klien.js';
 import { MODE_ROOM, deteksiMode, jalankanRoom, modeRoomTersimpan, urutkanNamaPeserta, workerParalel } from './lib/room.js';
-import { aturBawaan, aturRoom, bacaBot, botBawaan, botDiRoom, daftarBot, folderBot, hapusBot, konteksBot, promptBot, promptKoordinatorTim, ringkasBot, simpanBot } from './lib/bot.js';
+import { aturBawaan, aturRoom, bacaBot, botBawaan, botDiRoom, daftarBot, folderBot, hapusBot, konteksBot, namaSah, promptBot, promptKoordinatorTim, ringkasBot, simpanBot, urutkanMasuk } from './lib/bot.js';
 import { SUBAGEN, pilihSubagen, ringkasSubagen, workerSubagen } from './lib/subagen.js';
-import { workspace } from './lib/tui.js';
+import { workspace, modeLayar } from './lib/tui.js';
 import { TINGKAT_RUTE, tingkatSah, nilaiTingkat, formatRute, ruteAktif } from './lib/rute.js';
 import { serve } from './lib/serve.js';
 import { buatPengirim, serveKanal } from './lib/kanal.js';
@@ -63,7 +63,7 @@ if (Number(process.versions.node.split('.')[0]) >= 24
   process.exit(anak.status == null ? 1 : anak.status);
 }
 
-const VERSI = '3.33.6';
+const VERSI = '3.36.0';
 const TTY = Boolean(process.stdin.isTTY);
 /** Bendera boolean yang boleh datang sebagai `--x` atau `--x=true`. */
 const benar = (nilai) => nilai === true || nilai === 'true';
@@ -93,12 +93,15 @@ const BENDERA_BERSAMA = new Set(['lanjut', 'cetak', 'json', 'sanitasi', 'penuh',
 const BENDERA_BOOL = new Set(['lanjut', 'cetak', 'json', 'sanitasi', 'penuh', 'help', 'no-warna', 'warna', 'stream', 'diam', 'verbose', 'nalar',
   // Bendera mode tanpa nilai. Tanpa ini `--tanpa-setup "halo"` menelan pesan,
   // `--grup 628…` mematikan mode grup dan membuang nomornya.
-  'tanpa-setup', 'tanpa-tanya', 'tanpa-bin', 'tanpa-dep', 'grup', 'hapus', 'timpa', 'proyek', 'pull', 'ya', 'paksa', 'auth']);
+  'tanpa-setup', 'tanpa-tanya', 'tanpa-bin', 'tanpa-dep', 'grup', 'hapus', 'timpa', 'proyek', 'pull', 'ya', 'paksa']);
 
 // Bendera yang WAJIB punya nilai. Kalau nilainya tidak ada (akhir argv atau
 // diikuti bendera lain), simpan '' alih-alih `true` supaya `--port` tidak
 // berubah jadi port 1 dan `--sesi` tidak menjadi sesi bernama "true".
-const BENDERA_NILAI = new Set(['cwd', 'model', 'model-url', 'model-key', 'effort', 'max-tokens', 'batas-riwayat', 'batas-token', 'maks-langkah', 'rute', 'rute-tingkat', 'sesi', 'sesi-prefix', 'izin', 'port', 'host', 'worker', 'token', 'hari', 'lampirkan', 'judul', 'keterangan', 'command', 'url', 'args', 'env', 'headers', 'alat', 'batas', 'profil-alat', 'fallback', 'nomor', 'lebih', 'gateway', 'gateway-token', 'gateway-port', 'gateway-host', 'sub', 'nama', 'nama-bot']);
+// 'auth' & 'serve' di sini (bukan BOOL): dulu `--auth /jalur` menelan true dan
+// `/jalur` jadi token posisi yang dibuang - sesi WA terbuka di folder bawaan
+// tanpa galat apa pun.
+const BENDERA_NILAI = new Set(['cwd', 'model', 'model-url', 'model-key', 'effort', 'max-tokens', 'batas-riwayat', 'batas-token', 'maks-langkah', 'rute', 'rute-tingkat', 'sesi', 'sesi-prefix', 'izin', 'port', 'host', 'worker', 'token', 'hari', 'lampirkan', 'judul', 'keterangan', 'command', 'url', 'args', 'env', 'headers', 'alat', 'batas', 'profil-alat', 'fallback', 'nomor', 'lebih', 'gateway', 'gateway-token', 'gateway-port', 'gateway-host', 'sub', 'nama', 'nama-bot', 'auth', 'serve']);
 
 /** Argumen array di baris perintah: JSON kalau berbentuk JSON, kalau tidak pisah koma. */
 function uraiArray(teks) {
@@ -156,7 +159,8 @@ function bantu() {
     '  /chatroom daftar room & pesan · /sesi <id> pindah room · /ringkas simpan ingatan',
     '  /indikator unicode|ascii|emoji gaya indikator kerja · /biaya [hari] biaya token · /alat subset alat',
     '  /nalar tampil|sembunyi penalaran (thinking) model · /nalar = balik setelan · tersimpan di config',
-    '  /pengaturan 9 setelan interaktif: model, effort, token, rute, izin, worker, alat, indikator, room',
+    '  /pengaturan 10 setelan interaktif: model, effort, token, rute, izin, worker, alat, indikator, room, warna',
+    '  /warna [nama] warna font teks: bawaan putih abu hijau cyan biru ungu kuning oranye merah pink',
     '  /bot panel bot · /bot baru <nama> prompt="…" · /bot <nama> masuk/lepas room',
     '  !perintah jalan bash langsung · PgUp/PgDn/Ctrl+Y/Ctrl+B gulir · Ctrl+G dasar · Ctrl+C hentikan / keluar',
     '',
@@ -523,6 +527,23 @@ async function modeAgen(pesanAwal, { flag, ctx, konfModel }) {
     } finally {
       tutupMcp();
     }
+    return;
+  }
+
+  // stdout dipipa / TERM=dumb: layar penuh merusak keluaran. Jatuh ke mode
+  // baris: baca pesan dari stdin sampai EOF (Ctrl+D), jawab sekali.
+  const mode = modeLayar({ stdinTTY: TTY, stdoutTTY: Boolean(process.stdout.isTTY), term: process.env.TERM, noColor: process.env.NO_COLOR });
+  if (!mode.layarPenuh) {
+    process.stderr.write('sakti: layar penuh tidak tersedia (stdout bukan TTY atau TERM=dumb). Ketik pesan, akhiri Ctrl+D.\n');
+    const potongan = [];
+    for await (const bagian of process.stdin) potongan.push(bagian);
+    const pesan = Buffer.concat(potongan).toString('utf8').trim();
+    if (!pesan) { console.error('tidak ada pesan'); process.exit(2); }
+    try {
+      const hasil = await satuGiliran(pesan, { sesiId, konfModel, ctx, worker: flag.worker != null ? Number(flag.worker) : undefined, json, nalar: nalarCli });
+      process.stdout.write('\n');
+      if (hasil && hasil.kode) process.exitCode = 1;
+    } finally { tutupMcp(); }
     return;
   }
 
@@ -988,6 +1009,13 @@ function modeBot(kata, ctx, opsi = {}) {
     delete nilai.prompt;
     const bot = simpanBot(nama, Object.assign(nilai, { prompt }));
     if (sesiId) aturRoom(sesiId, botDiRoom(sesiId).concat([bot.nama]));
+    else {
+      // Tanpa `--sesi`, bot baru otomatis jadi bagian room BAWAAN: setiap
+      // `sakti chat` baru mewarisi room ini. Dulu bot baru tidak masuk
+      // mana-mana, jadi sesi berikutnya tidak punya bot bawaan sama sekali.
+      aturBawaan([...new Set(botBawaan().concat([namaSah(bot.nama)]))]);
+      console.log('room bawaan: ' + botBawaan().join(', '));
+    }
     console.log('bot dibuat: ' + bot.nama + ' (' + folderBot() + '/' + bot.nama + '.json)');
     if (sesiId) console.log('room ' + sesiId + ': ' + botDiRoom(sesiId).join(', '));
     return;
@@ -1007,7 +1035,9 @@ function modeBot(kata, ctx, opsi = {}) {
     const nama = kata[1];
     if (!nama) { console.error('butuh nama: sakti bot hapus riset'); process.exit(2); }
     hapusBot(nama);
-    if (sesiId) aturRoom(sesiId, botDiRoom(sesiId).filter((satu) => satu !== nama));
+    // Bandingkan tergolisi: room menyimpan slug (namaSah), `nama` bisa nama
+    // tampilan. Dulu "Sulhan" !== "sulhan" -> bot sampah tetap tercatat di room.
+    if (sesiId) aturRoom(sesiId, botDiRoom(sesiId).filter((satu) => satu !== namaSah(nama)));
     console.log('bot dihapus: ' + nama);
     return;
   }
@@ -1026,7 +1056,15 @@ function modeBot(kata, ctx, opsi = {}) {
     // Beberapa nama sekaligus: `sakti bot masuk riset kode`. `semua` = semua bot
     // di disk; `lepas semua` mengosongkan room.
     let nama = kata.slice(1).filter(Boolean);
-    if (nama.length === 1 && nama[0] === 'semua') nama = daftarBot().map((satu) => satu.nama);
+    // `daftarBot()` mengembalikan nama TERGOLISI (namaSah: huruf kecil, slug),
+    // sedangkan isi room disimpan dalam bentuk yang sama — jadi `semua` harus
+    // dinormalisasi dulu. Dulu `bot lepas semua` membandingkan "Sulhan" dengan
+    // "sulhan" di room: tak pernah cocok, lepas diam-diam gagal (exit 0).
+    if (nama.length === 1 && nama[0] === 'semua') nama = daftarBot().map((satu) => namaSah(satu.nama));
+    // Nama yang diketik juga bisa nama tampilan ("Eny"): lepas satu bot harus
+    // TEPAT mengeluarkan bot itu saja - bukan gagal diam-diam sampai pengguna
+    // terpaksa `lepas semua` dan SEMUA bot keluar dari room.
+    else nama = urutkanMasuk(nama);
     if (!nama.length) { console.error('butuh nama bot: sakti bot ' + aksi + ' riset [kode ...] | semua'); process.exit(2); }
     const hilang = nama.filter((satu) => !bacaBot(satu));
     if (hilang.length) { console.error('bot tidak ada: ' + hilang.join(', ')); process.exit(2); }
@@ -1133,7 +1171,7 @@ async function modeSetup(flag) {
           token: flag['gateway-token'] || '',
           port: Number(flag['gateway-port']) || 4318,
           host: flag['gateway-host'] || '127.0.0.1',
-          serve: typeof flag.serve === 'string' ? flag.serve : 'http://127.0.0.1:4317'
+          serve: typeof flag.serve === 'string' && flag.serve ? flag.serve : 'http://127.0.0.1:4317'
         }
         : { jenis: 'none' };
       hasil = susunKonfig({ url: flag.url || '', key: flag.key || '', model: flag.model || '', gateway, fallbacks: flag.fallback || '' });
@@ -1396,13 +1434,15 @@ const perintah = sisa[0] || (flag.help ? 'help' : 'chat');
       // WhatsApp native (Baileys): pairing QR, pesan masuk -> serve /chat,
       // balasan -> WhatsApp. `sakti serve` tetap sumber kebenaran agen.
       const kanalWa = (konfModel && konfModel.kanal) || {};
-      const serveWa = typeof flag.serve === 'string' ? flag.serve : (kanalWa.serve || 'http://127.0.0.1:4317');
+      const serveWa = typeof flag.serve === 'string' && flag.serve ? flag.serve : (kanalWa.serve || 'http://127.0.0.1:4317');
       const tokenWa = typeof flag.token === 'string' ? flag.token : (process.env.SAKTI_TOKEN || '');
-      const izinWa = uraiArray(flag.izin);
+      const izinWa = uraiArray(flag.izin).length
+        ? uraiArray(flag.izin)
+        : String(process.env.SAKTI_WA_IZIN || '').split(',').map((s) => s.trim()).filter(Boolean);
       const klien = await jalanWa({
         serve: serveWa,
         token: tokenWa,
-        authDir: typeof flag.auth === 'string' ? flag.auth : folderAuthWa(),
+        authDir: typeof flag.auth === 'string' && flag.auth ? flag.auth : folderAuthWa(),
         izin: izinWa,
         grup: flag.grup === true,
         nomor: typeof flag.nomor === 'string' ? flag.nomor : '',
@@ -1423,7 +1463,7 @@ const perintah = sisa[0] || (flag.help ? 'help' : 'chat');
       const kanalKonf = (konfModel && konfModel.kanal) || {};
       const port = Number(flag.port) || Number(kata[0]) || Number(kanalKonf.port) || 4318;
       const host = typeof flag.host === 'string' ? flag.host : (kanalKonf.host || '127.0.0.1');
-      const tujuan = typeof flag.serve === 'string' ? flag.serve : (kanalKonf.serve || 'http://127.0.0.1:4317');
+      const tujuan = typeof flag.serve === 'string' && flag.serve ? flag.serve : (kanalKonf.serve || 'http://127.0.0.1:4317');
       // Dua rahasia berbeda, jangan dicampur:
       //   token   = auth webhook masuk (Bearer / X-Sakti-Token)
       //   rahasia = secret_token Telegram (header X-Telegram-Bot-Api-Secret-Token)

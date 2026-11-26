@@ -1,6 +1,6 @@
 {
   "name": "sakti-cli",
-  "version": "3.33.6",
+  "version": "3.36.0",
   "description": "Agen terminal mandiri: alat Sakti Bot + agen gaya pi + ingatan/skill gaya Hermes, tanpa biner luar",
   "type": "module",
   "bin": {

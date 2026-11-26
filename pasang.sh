@@ -148,12 +148,17 @@ if [ -n "$MODEL_URL" ]; then
 const fs = require('node:fs');
 const [berkas, baseUrl, model, apiKey] = process.argv.slice(2);
 let lama = {};
-try { lama = JSON.parse(fs.readFileSync(berkas, 'utf8')) || {}; } catch { lama = {}; }
+try { lama = JSON.parse(fs.readFileSync(berkas, 'utf8')) || {}; } catch (galat) {
+  // Config rusak: cadangkan dulu - isi lama (kanal, fallbacks) jangan lenyap tanpa jejak.
+  try { if (fs.existsSync(berkas)) fs.renameSync(berkas, berkas + '.rusak-' + Date.now()); } catch { /* berkas sudah tidak ada */ }
+  lama = {};
+}
 const baru = Object.assign(lama, { baseUrl: baseUrl.replace(/\/+$/, '') });
 if (model) baru.model = model;
 if (apiKey) baru.apiKey = apiKey;
-fs.writeFileSync(berkas, JSON.stringify(baru, null, 1) + '\n');
-console.log('OK  config: ' + berkas);
+// 0600 langsung saat tulis: dulu 0644 dulu baru chmod - kunci terbaca proses
+// lain di jendela itu, dan chmod gagal = diam di 0644 selamanya.
+fs.writeFileSync(berkas, JSON.stringify(baru, null, 1) + '\n', { mode: 0o600 });
 NODE
   chmod 600 "$CFG" 2>/dev/null || true
   echo "OK  bendera model diberikan; wizard setup dilewati"
